@@ -1,5 +1,6 @@
+import decimal
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from evaluation.evaluation_utils import precision_recall_f1
@@ -13,6 +14,7 @@ def evaluate_item(item):
     db_id = item["db_id"]
     db = connect_postgresql()
     cursor = db.cursor()
+    valid_query = True
 
     try:
         # Set schema to match DB ID (schema name)
@@ -34,6 +36,9 @@ def evaluate_item(item):
     rowset_gt = execute_query_and_get_rows(true_sql, cursor)
     rowset_pred = execute_query_and_get_rows(predicted_sql, cursor)
 
+    if not rowset_pred:
+        valid_query = False
+
 
     p_row, r_row, f_row = precision_recall_f1(rowset_gt, rowset_pred)
 
@@ -44,6 +49,9 @@ def evaluate_item(item):
 
     return {
         "question_id": item["question_id"],
+        "difficulty": item["difficulty"],
+        "db_id": db_id,
+        "valid_query": valid_query,
         "tables": {
             "groundtruth": list(gt_tables),
             "predicted": list(pred_tables),
@@ -71,6 +79,8 @@ class DecimalEncoder(json.JSONEncoder):
             return o.isoformat()
         elif isinstance(o, set):
             return list(o)
+        elif isinstance(o, timedelta):
+            return str(o)
         return super(DecimalEncoder, self).default(o)
 
 def evaluate_llm_outputs(json_path: str, output_log_path: str):

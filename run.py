@@ -16,7 +16,7 @@ def main():
     model_id = "anthropic.claude-3-5-sonnet-20240620-v1:0"
 
     print("[RUN] Calling LLM...")
-    run_llm_process(input_file=input_file, output_file=raw_output_file, model_id=model_id)
+    #run_llm_process(input_file=input_file, output_file=raw_output_file, model_id=model_id)
 
     print("[RUN] Cleaning LLM output...")
     clean_llm_output(input_file=raw_output_file, output_file=cleaned_output_file, model_id=model_id)
