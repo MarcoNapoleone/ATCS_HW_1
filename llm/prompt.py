@@ -1,4 +1,26 @@
-from table_schema import generate_schema_prompt
+from pgdb.pg_utils import connect_postgresql, db_table_map, format_postgresql_create_table
+
+
+def generate_schema_prompt(db_path):
+    db = connect_postgresql()
+    cursor = db.cursor()
+    db_name = db_path.split("/")[-1].split(".sqlite")[0]
+    tables = [table for table in db_table_map[db_name]]
+    schemas = {}
+    for table in tables:
+        cursor.execute(
+            f"""
+                SELECT column_name, data_type, is_nullable
+                FROM information_schema.columns
+                WHERE table_name = '{table}';
+            """
+        )
+        raw_schema = cursor.fetchall()
+        pretty_schema = format_postgresql_create_table(table, raw_schema)
+        schemas[table] = pretty_schema
+    schema_prompt = "\n\n".join(schemas.values())
+    db.close()
+    return schema_prompt
 
 
 def generate_comment_prompt(question, sql_dialect, knowledge=None):

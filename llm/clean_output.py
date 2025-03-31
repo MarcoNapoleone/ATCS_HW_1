@@ -1,39 +1,49 @@
-#!/usr/bin/env python3
-import argparse
 import json
+import re
 
-def main():
-    parser = argparse.ArgumentParser(description="Clean LLM JSON output by removing newlines and excess whitespace.")
-    parser.add_argument("--input_file", type=str, required=True, help="Path to the input JSON file.")
-    parser.add_argument("--output_file", type=str, required=True, help="Path to the output JSON file.")
-    parser.add_argument("--model_id", type=str, default=None, help="Optional: model identifier.")
-    args = parser.parse_args()
+def clean_sql_for_execution(sql: str) -> str:
+    """
+    Clean LLM-generated SQL to remove markdown, trailing junk, and incomplete clauses.
+    """
 
-    # Fields in each JSON object to clean up
+    # remove the /* */ comments
+    q = re.sub(r"/\*[^*]*\*+(?:[^*/][^*]*\*+)*/", "", sql)
+
+    # remove whole line -- and # comments
+    lines = [line for line in q.splitlines() if not re.match("^\s*(--|#)", line)]
+
+    # remove trailing -- and # comments
+    q = " ".join([re.split("--|#", line)[0] for line in lines])
+
+    return q
+
+
+
+def clean_llm_output(input_file: str, output_file: str, model_id: str = None):
     fields_to_clean = ["true_sql", "text_2_sql", "prompt"]
 
-    with open(args.input_file, "r", encoding="utf-8") as f:
+    with open(input_file, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # Make sure `data` is a list of items
     if isinstance(data, dict):
         data = [data]
 
     for item in data:
-        # 1. Clean top-level fields (replace all whitespace sequences with a single space)
         for field in fields_to_clean:
             if field in item and item[field]:
                 item[field] = " ".join(item[field].split())
 
-        # 2. Optionally clean nested fields, e.g. "response_metadata.generation"
+        # Clean predicted SQL
+        if "text_2_sql" in item:
+            item["text_2_sql"] = clean_sql_for_execution(item["text_2_sql"])
+
+        # Clean generation inside response_metadata
         if "response_metadata" in item and "generation" in item["response_metadata"]:
             gen_text = item["response_metadata"]["generation"]
             if gen_text:
                 item["response_metadata"]["generation"] = " ".join(gen_text.split())
 
-    # Write the cleaned data
-    with open(args.output_file, "w", encoding="utf-8") as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-if __name__ == "__main__":
-    main()
+    print(f"[CLEAN] Cleaned output saved to {output_file}")

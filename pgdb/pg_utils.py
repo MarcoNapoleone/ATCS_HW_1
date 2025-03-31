@@ -1,3 +1,5 @@
+from typing import Set, Tuple
+
 import psycopg2
 
 db_table_map = {
@@ -87,32 +89,46 @@ db_table_map = {
 }
 
 
-def nice_look_table(column_names: list, values: list):
-    rows = []
+def nice_look_table(column_names: list, values: list) -> str:
+    """
+    Returns a string representing a nicely formatted table of rows.
+    Each element in 'values' corresponds to a row, while 'column_names'
+    are the headers for each column.
+    """
     # Determine the maximum width of each column
     widths = [
         max(len(str(value[i])) for value in values + [column_names])
         for i in range(len(column_names))
     ]
 
-    # Print the column names
+    # Construct the header
     header = "".join(
         f"{column.rjust(width)} " for column, width in zip(column_names, widths)
     )
-    # print(header)
-    # Print the values
+
+    # Construct each row
+    rows_str_list = []
     for value in values:
         row = "".join(f"{str(v).rjust(width)} " for v, width in zip(value, widths))
-        rows.append(row)
-    rows = "\n".join(rows)
-    final_output = header + "\n" + rows
+        rows_str_list.append(row)
+
+    rows_str = "\n".join(rows_str_list)
+    final_output = header + "\n" + rows_str
     return final_output
 
 
-def format_postgresql_create_table(table_name, columns_info):
+def format_postgresql_create_table(table_name: str, columns_info: list) -> str:
+    """
+    Given a table name and a list of columns_info,
+    returns a valid PostgreSQL CREATE TABLE statement.
+
+    columns_info should be a list of tuples/lists in the form:
+      (column_name, data_type, is_nullable)
+    For example: ("customerid", "bigint", "YES")
+    """
     lines = [f"CREATE TABLE {table_name}\n("]
     for i, (column_name, data_type, is_nullable) in enumerate(columns_info):
-        null_status = "NULL" if is_nullable == "YES" else "NOT NULL"
+        null_status = "NULL" if is_nullable.upper() == "YES" else "NOT NULL"
         postgres_data_type = data_type.upper()
         column_line = f"    `{column_name}` {postgres_data_type} {null_status}"
         if i < len(columns_info) - 1:
@@ -123,36 +139,36 @@ def format_postgresql_create_table(table_name, columns_info):
     return "\n".join(lines)
 
 
+def execute_query_and_get_rows(sql_query: str, cursor) -> Set[Tuple]:
+    """
+    Execute a SQL query and return the result as a set of tuples
+    for row-level comparison.
+    """
+    try:
+        cursor.execute(sql_query)
+        rows = cursor.fetchall()
+
+        # Convert rows to a set of tuples
+        row_set = {tuple(row) for row in rows}
+    except Exception as err:
+        print(f"Failed to execute query: {sql_query}")
+        return set()
+
+    return row_set
+
 def connect_postgresql():
-    # Open database connection
-    # Connect to the database
+    """
+    Establishes a connection to a PostgreSQL database using hardcoded credentials.
+    Returns a psycopg2 connection object.
+
+    Adjust credentials as needed:
+      dbname, user, host, password, port.
+    """
     db = psycopg2.connect(
-        "dbname=BIRD user=postgres host=localhost password=postgres port=5432"
+        dbname="BIRD",
+        user="postgres",
+        host="localhost",
+        password="postgres",
+        port="5432"
     )
     return db
-
-
-def generate_schema_prompt_postgresql(db_path):
-    db = connect_postgresql()
-    cursor = db.cursor()
-    db_name = db_path.split("/")[-1].split(".sqlite")[0]
-    tables = [table for table in db_table_map[db_name]]
-    schemas = {}
-    for table in tables:
-        cursor.execute(
-            f"""
-                SELECT column_name, data_type, is_nullable
-                FROM information_schema.columns
-                WHERE table_name = '{table}';
-            """
-        )
-        raw_schema = cursor.fetchall()
-        pretty_schema = format_postgresql_create_table(table, raw_schema)
-        schemas[table] = pretty_schema
-    schema_prompt = "\n\n".join(schemas.values())
-    db.close()
-    return schema_prompt
-
-
-def generate_schema_prompt(db_path=None):
-    return generate_schema_prompt_postgresql(db_path)

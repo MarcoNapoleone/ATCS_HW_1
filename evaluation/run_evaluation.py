@@ -1,68 +1,127 @@
-#!/usr/bin/env python3
-import argparse
 import json
+from datetime import date, datetime
+from decimal import Decimal
 
-from evaluation_utils import (
-    extract_tables_from_query,
-    filter_valid_tables,
-    precision_recall_f1
-)
+from evaluation.evaluation_utils import precision_recall_f1
+from pgdb.pg_utils import execute_query_and_get_rows, connect_postgresql
+import psycopg2
+from sql_metadata import Parser
 
-def main():
-    parser = argparse.ArgumentParser(description='Esegue la valutazione delle query SQL previste.')
-    parser.add_argument('--predicted_sql_path', type=str, required=True,
-                        help='Percorso al file JSON di output del LLM.')
-    parser.add_argument('--sql_dialect', type=str, default='PostgreSQL',
-                        help='Dialetto SQL usato (non usato in questa demo, ma per coerenza con lo script).')
 
-    args = parser.parse_args()
+def evaluate_item(item):
+    """Evaluate a single item using table and row-level metrics."""
+    db_id = item["db_id"]
+    db = connect_postgresql()
+    cursor = db.cursor()
 
-    with open(args.predicted_sql_path, 'r', encoding='utf-8') as f:
+    try:
+        # Set schema to match DB ID (schema name)
+        cursor.execute(f"SET search_path TO {db_id}, public;")
+    except psycopg2.Error as e:
+        print(f"Error setting schema for {db_id}: {e}")
+        return None
+
+    true_sql = item["true_sql"]
+    predicted_sql = item["text_2_sql"]
+
+    # ---- Table-level evaluation ----
+    gt_tables = Parser(true_sql).tables
+    pred_tables = Parser(predicted_sql).tables
+    p_tab, r_tab, f_tab = precision_recall_f1(gt_tables, pred_tables)
+
+    # ---- Row-level evaluation (by executing queries) ----
+
+    rowset_gt = execute_query_and_get_rows(true_sql, cursor)
+    rowset_pred = execute_query_and_get_rows(predicted_sql, cursor)
+
+
+    p_row, r_row, f_row = precision_recall_f1(rowset_gt, rowset_pred)
+
+    # close connection
+    cursor.close()
+
+    # Return the evaluation results
+
+    return {
+        "question_id": item["question_id"],
+        "tables": {
+            "groundtruth": list(gt_tables),
+            "predicted": list(pred_tables),
+            "precision": p_tab,
+            "recall": r_tab,
+            "f1": f_tab
+        },
+        "rows": {
+            "groundtruth": list(rowset_gt),
+            "predicted": list(rowset_pred),
+            "precision": p_row,
+            "recall": r_row,
+            "f1": f_row
+        }
+    }
+
+def avg(lst):
+    return sum(lst) / len(lst) if lst else 0.0
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, Decimal):
+            return float(o)
+        elif isinstance(o, (date, datetime)):
+            return o.isoformat()
+        elif isinstance(o, set):
+            return list(o)
+        return super(DecimalEncoder, self).default(o)
+
+def evaluate_llm_outputs(json_path: str, output_log_path: str):
+    """
+    Main evaluation routine:
+    - Loads the input JSON
+    - Connects to PostgreSQL
+    - Evaluates table and row-level metrics
+    - Logs and prints results
+    """
+    with open(json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    # Liste per metriche su TABELLE
+    # Flatten if wrapped in an extra list
+    if isinstance(data, list) and len(data) == 1 and isinstance(data[0], list):
+        data = data[0]
+
     table_precision_list = []
     table_recall_list = []
     table_f1_list = []
 
-    # Se data è un singolo dict o una lista di dict
-    if isinstance(data, dict):
-        data = [data]
+    row_precision_list = []
+    row_recall_list = []
+    row_f1_list = []
 
-    # Cicliamo su ogni "riga" (domanda) del JSON
+    evaluation_log = []
+
     for item in data:
-        # Recuperiamo dal JSON la ground truth, la predizione e il db_id
-        db_id        = item.get("db_id", "")
-        true_sql     = item.get("true_sql", "")     # ground truth
-        predicted_sql= item.get("text_2_sql", "")   # la query generata dal modello
+        result = evaluate_item(item)
+        if result is None:
+            continue
 
-        # 1) Estraiamo le tabelle dalla groundtruth e dalla predizione
-        gt_tables_found   = extract_tables_from_query(true_sql)
-        pred_tables_found = extract_tables_from_query(predicted_sql)
+        evaluation_log.append(result)
 
-        # 2) Filtriamo le tabelle con quelle effettivamente esistenti per quel db (db_table_map)
-        gt_tables_filtered   = filter_valid_tables(gt_tables_found, db_id)
-        pred_tables_filtered = filter_valid_tables(pred_tables_found, db_id)
+        table_precision_list.append(result["tables"]["precision"])
+        table_recall_list.append(result["tables"]["recall"])
+        table_f1_list.append(result["tables"]["f1"])
 
-        # 3) Calcolo di precision, recall e f1
-        p_tab, r_tab, f_tab = precision_recall_f1(gt_tables_filtered, pred_tables_filtered)
-        table_precision_list.append(p_tab)
-        table_recall_list.append(r_tab)
-        table_f1_list.append(f_tab)
+        row_precision_list.append(result["rows"]["precision"])
+        row_recall_list.append(result["rows"]["recall"])
+        row_f1_list.append(result["rows"]["f1"])
 
-    # Calcolo delle medie finali sulle tabelle
-    if len(table_precision_list) > 0:
-        avg_p_tab = sum(table_precision_list) / len(table_precision_list)
-        avg_r_tab = sum(table_recall_list) / len(table_recall_list)
-        avg_f_tab = sum(table_f1_list) / len(table_f1_list)
-    else:
-        avg_p_tab, avg_r_tab, avg_f_tab = 0.0, 0.0, 0.0
+    print("=== Table Usage Evaluation ===")
+    print(f"Precision: {avg(table_precision_list):.4f}")
+    print(f"Recall:    {avg(table_recall_list):.4f}")
+    print(f"F1:        {avg(table_f1_list):.4f}\n")
 
-    # Stampa risultati
-    print("=== RISULTATI SULLE TABELLE (USAGE) ===")
-    print(f"Precision: {avg_p_tab:.4f}")
-    print(f"Recall:    {avg_r_tab:.4f}")
-    print(f"F1 Score:  {avg_f_tab:.4f}")
+    print("=== Row-Level Evaluation ===")
+    print(f"Precision: {avg(row_precision_list):.4f}")
+    print(f"Recall:    {avg(row_recall_list):.4f}")
+    print(f"F1:        {avg(row_f1_list):.4f}")
 
-if __name__ == "__main__":
-    main()
+    with open(output_log_path, "w", encoding="utf-8") as fout:
+        json.dump(evaluation_log, fout, ensure_ascii=False, indent=2, cls=DecimalEncoder)

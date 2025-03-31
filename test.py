@@ -1,5 +1,5 @@
 # Suppose you have a script or a test snippet:
-from llm.utils.llm_request import call_llm_model
+from llm.llm_request import call_llm_model
 
 if __name__ == "__main__":
 
@@ -11,17 +11,15 @@ if __name__ == "__main__":
         export AWS_DEFAULT_REGION=us-east-1
         python run.py
     """
-
     
     input_data = {
+        "system": "You are a helpful assistant.",
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 1024,
         "prompt": "Provide a concise summary of the following text: AWS Bedrock is a fully managed service...",
-        "max_tokens": 100,
-        "temperature": 0.5
+        "temperature": 0.1
     }
 
-    response = call_llm_model(input_data, model_id="amazon.titan-tg1-large")
+    response = call_llm_model(input_data, model_id="anthropic.claude-3-5-sonnet-20240620-v1:0")
     print("LLM response:", response)
-
-    # Typically, you'd retrieve generated text from:
-    # response["results"][0]["outputText"]  (assuming Titan returns a results array)
 

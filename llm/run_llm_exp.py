@@ -4,8 +4,8 @@ import os
 import json
 import argparse
 
-from llm_request import call_llm_model
-from prompt import generate_combined_prompts  # <-- updated schema-alignment function
+from llm.llm_request import call_llm_model
+from llm.prompt import generate_combined_prompts
 
 
 def run_llm_process(input_file: str, output_file: str, model_id: str):
@@ -27,10 +27,13 @@ def run_llm_process(input_file: str, output_file: str, model_id: str):
         )
 
         # 3. Call the LLM model
-        llm_result = call_llm_model({"prompt": prompt}, model_id=model_id)
-        txt2sql = llm_result["results"][0]["outputText"] \
-            if model_id == "amazon.titan-tg1-large" \
-            else llm_result["generation"]
+        txt2sql = call_llm_model({
+            "prompt": prompt,
+            "temperature": 0.1,
+            "max_tokens": 1024,
+            "top_k": 2,
+            "top_p": 0.9,
+        }, model_id=model_id)
 
         # Collect the result. You can also store the original question, db_id, etc.
         all_responses.append({
@@ -40,7 +43,6 @@ def run_llm_process(input_file: str, output_file: str, model_id: str):
             "true_sql": question["SQL"],
             "text_2_sql": txt2sql,
             "prompt": prompt,
-            "response_metadata": llm_result,
             "difficulty": question["difficulty"]
         })
 
