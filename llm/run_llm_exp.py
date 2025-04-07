@@ -1,14 +1,16 @@
 # run_llm_exp.py
 
-import os
-import json
 import argparse
+import json
+import os
 
 from llm.llm_request import call_llm_model
 from llm.prompt import generate_combined_prompts
+from pgdb.pg_utils import is_valid_sql
+from llm.clean_output import clean_sql_for_execution
 
 
-def run_llm_process(input_file: str, output_file: str, model_id: str):
+def run_llm_process(input_file: str, output_file: str, model_id: str, generation_retries: int = 3):
     # 1. Read input data (JSON list of questions)
     with open(input_file, "r", encoding="utf-8") as f:
         questions = json.load(f)
@@ -19,32 +21,50 @@ def run_llm_process(input_file: str, output_file: str, model_id: str):
     for question in questions:
         # Create a combined prompt for schema alignment.
         # We can embed db_id, question text, and any evidence or knowledge
+
         prompt = generate_combined_prompts(
             db_path=question["db_id"],
             question=question["question"],
             sql_dialect='PostgreSQL',
-            knowledge=question.get("knowledge")
+            knowledge=question["token_column_mapping"],
         )
 
-        # 3. Call the LLM model
-        txt2sql = call_llm_model({
-            "prompt": prompt,
-            "temperature": 0.1,
-            "max_tokens": 1024,
-            "top_k": 2,
-            "top_p": 0.9,
-        }, model_id=model_id)
+        # check if the SQL query is valid for generation_retries and retry if not
+        for _ in range(generation_retries):
+            # 3. Call the LLM model
+            txt2sql = call_llm_model({
+                "prompt": prompt,
+                "temperature": 0.1,
+                "max_tokens": 1024,
+                "top_k": 2,
+                "top_p": 0.9,
+            }, model_id=model_id)
 
-        # Collect the result. You can also store the original question, db_id, etc.
-        all_responses.append({
-            "question_id": question["question_id"],
-            "db_id": question["db_id"],
-            "question": question["question"],
-            "true_sql": question["SQL"],
-            "text_2_sql": txt2sql,
-            "prompt": prompt,
-            "difficulty": question["difficulty"]
-        })
+            is_valid = is_valid_sql(clean_sql_for_execution(str(txt2sql)), question["db_id"])
+
+            all_responses.append({
+                "question_id": question["question_id"],
+                "db_id": question["db_id"],
+                "question": question["question"],
+                "true_sql": question["SQL"],
+                "text_2_sql": txt2sql,
+                "prompt": prompt,
+                "attempt": _ + 1,
+                "is_valid": is_valid,
+                "difficulty": question["difficulty"]
+            })
+
+            # Validate the SQL query
+            if is_valid:
+                break
+
+            else:
+                print(
+                    f"[LLM] Invalid SQL generated for question_id={question['question_id']}, current attempt: {_ + 1}, retrying...")
+        else:
+            print(
+                f"[LLM] Failed to generate valid SQL for question_id={question['question_id']} after {generation_retries} retries.")
+            continue
 
         print(f"[LLM] Processed question_id={question['question_id']}, progress={len(all_responses)}/{len(questions)}")
 

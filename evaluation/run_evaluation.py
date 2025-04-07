@@ -108,7 +108,15 @@ def evaluate_llm_outputs(json_path: str, output_log_path: str):
 
     evaluation_log = []
 
+    # dropping all not valid queries
+    original_len = len(data)
+    data = [item for item in data if item["is_valid"]]
+    print(f"Evaluating {json_path} of length {original_len}...")
+    print(f"Number of valid queries: {len(data)}")
+    print(f"Number of invalid queries: {original_len - len(data)}")
+
     for item in data:
+
         result = evaluate_item(item)
         if result is None:
             continue

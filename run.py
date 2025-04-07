@@ -7,10 +7,11 @@ from evaluation.run_evaluation import evaluate_llm_outputs
 def main():
 
     # Parameters
-    input_file = "data/dev.json"
-    raw_output_file = "results/claude-3-5_raw.json"
-    cleaned_output_file = "results/claude-3-5_cleaned.json"
-    output_log_path = "results/claude-3-5_eval_log.json"
+    input_file = "data/dev_enriched.json"
+
+    raw_output_file = f"results/{input_file.split('/')[-1].replace('.json', '_raw.json')}"
+    cleaned_output_file = f"results/{input_file.split('/')[-1].replace('.json', '_cleaned.json')}"
+    output_log_path = f"results/{input_file.split('/')[-1].replace('.json', '_log.json')}"
 
     # AWS bedrock model_id
     model_id = "anthropic.claude-3-5-sonnet-20240620-v1:0"

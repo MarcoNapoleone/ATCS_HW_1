@@ -139,6 +139,37 @@ def format_postgresql_create_table(table_name: str, columns_info: list) -> str:
     return "\n".join(lines)
 
 
+def is_valid_sql(query: str, db_id: str) -> bool:
+    """
+    Check if the SQL query is valid for the given database ID.
+    This function assumes that the database connection is already established.
+    """
+    db = connect_postgresql()
+    cursor = db.cursor()
+
+    # Get the table names for the given db_id
+    tables = db_table_map.get(db_id, [])
+    if not tables:
+        print(f"No tables found for db_id: {db_id}")
+        return False
+
+    # Check if all tables in the query exist in the database
+    for table in tables:
+        cursor.execute(f"SELECT to_regclass('{table}')")
+        result = cursor.fetchone()
+        if result[0] is None:
+            print(f"Table {table} does not exist in the database.")
+            return False
+
+    # Execute the SQL query to check its validity
+    try:
+        cursor.execute(query)
+        return True
+    except Exception as err:
+        print(f"SQL query execution failed: {err}")
+        return False
+
+
 def execute_query_and_get_rows(sql_query: str, cursor) -> Set[Tuple]:
     """
     Execute a SQL query and return the result as a set of tuples
@@ -155,6 +186,7 @@ def execute_query_and_get_rows(sql_query: str, cursor) -> Set[Tuple]:
         return set()
 
     return row_set
+
 
 def connect_postgresql():
     """
