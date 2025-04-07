@@ -22,8 +22,8 @@ Schema alignment remains a core challenge in natural language interfaces to data
 
 | Evaluation Type     | Precision | Recall | F1-score |
 |---------------------|-----------|--------|----------|
-| Table Usage         | 0.8940    | 0.9358 | 0.9010   |
-| Row-Level Execution | 0.2609    | 0.2598 | 0.2535   |
+| Table Usage         | 0.9125    | 0.9382 | 0.9126   |
+| Row-Level Execution | 0.3162    | 0.3143 | 0.3078   |
 
 🔧 Queries were executed on PostgreSQL.
 
